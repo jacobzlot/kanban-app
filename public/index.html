@@ -370,15 +370,9 @@
         <span class="progress-val" id="progressVal">0%</span>
       </div>
     </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Start Date</label>
-        <input type="date" id="cardStart"/>
-      </div>
-      <div class="form-group">
-        <label>Due Date</label>
-        <input type="date" id="cardDue"/>
-      </div>
+    <div class="form-group">
+      <label>Due Date</label>
+      <input type="date" id="cardDue"/>
     </div>
     <div class="form-group">
       <label>Tags <span style="color:var(--text3);font-weight:400">(type + Enter)</span></label>
@@ -533,12 +527,13 @@ function makeCard(card, colColor) {
   const progColor = card.progress === 100 ? '#22c55e' : card.progress >= 50 ? '#3b82f6' : '#f59e0b';
   const progBar = card.progress > 0 ? `<div class="card-progress-bar"><div class="card-progress-fill" style="width:${card.progress}%;background:${progColor}"></div></div>` : '';
 
-  // Dates
+  // Dates - due date only, fix timezone by parsing YYYY-MM-DD directly
   const today = new Date().toISOString().slice(0,10);
-  const datesHtml = [
-    card.start_date ? `<span class="card-date"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1" y="2" width="10" height="9" rx="1.5"/><line x1="4" y1="1" x2="4" y2="3"/><line x1="8" y1="1" x2="8" y2="3"/></svg>${fmtDate(card.start_date)}</span>` : '',
-    card.due_date ? `<span class="card-date${card.due_date < today && card.status !== 'done' ? ' overdue' : ''}"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="5"/><polyline points="6,3 6,6 8,8"/></svg>${fmtDate(card.due_date)}</span>` : ''
-  ].filter(Boolean).join('');
+  const dueDateStr = card.due_date ? card.due_date.slice(0,10) : null;
+  const isOverdue = dueDateStr && dueDateStr < today && card.status !== 'done';
+  const datesHtml = dueDateStr
+    ? `<div class="card-footer"><span class="card-date${isOverdue ? ' overdue' : ''}"><svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="6" cy="6" r="5"/><polyline points="6,3 6,6 8,8"/></svg>${fmtDate(dueDateStr)}</span></div>`
+    : '';
 
   div.innerHTML = `
     <div class="card-actions">
@@ -553,7 +548,7 @@ function makeCard(card, colColor) {
     <div class="card-title">${esc(card.title)}</div>
     ${badgesHtml}
     ${progBar}
-    ${datesHtml ? `<div class="card-footer">${datesHtml}</div>` : ''}
+    ${datesHtml}
   `;
   return div;
 }
@@ -699,7 +694,7 @@ function openAddCard(colId) {
   document.getElementById('cardStatus').value = 'active';
   document.getElementById('cardProgress').value = 0;
   document.getElementById('progressVal').textContent = '0%';
-  document.getElementById('cardStart').value = '';
+  document.getElementById('cardStart') && (document.getElementById('cardStart').value = '');
   document.getElementById('cardDue').value = '';
   renderTagsInput();
   openModal('cardModal');
@@ -719,7 +714,6 @@ function openEditCard(cardId) {
   document.getElementById('cardStatus').value = card.status;
   document.getElementById('cardProgress').value = card.progress;
   document.getElementById('progressVal').textContent = card.progress + '%';
-  document.getElementById('cardStart').value = card.start_date ? card.start_date.slice(0,10) : '';
   document.getElementById('cardDue').value = card.due_date ? card.due_date.slice(0,10) : '';
   renderTagsInput();
   openModal('cardModal');
@@ -737,7 +731,6 @@ async function saveCard() {
     progress: parseInt(document.getElementById('cardProgress').value),
     tags: pendingTags.map(t => t.label).join(','),
     tag_colors: pendingTags.map(t => t.color).join(','),
-    start_date: document.getElementById('cardStart').value || null,
     due_date: document.getElementById('cardDue').value || null,
   };
   if (editingCard) {
@@ -894,7 +887,8 @@ function hexAlpha(hex, a) {
 }
 function fmtDate(d) {
   if (!d) return '';
-  const dt = new Date(d + 'T00:00:00');
+  const [y, m, day] = d.slice(0,10).split('-').map(Number);
+  const dt = new Date(y, m - 1, day);
   return dt.toLocaleDateString('en-US', { month:'short', day:'numeric' });
 }
 function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
