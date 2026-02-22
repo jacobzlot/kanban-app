@@ -75,11 +75,11 @@
   .btn-add-col:hover { background: var(--accent2); transform: translateY(-1px); }
 
   /* ── BOARD ── */
-  .board-wrap { height: calc(100vh - 52px); overflow-x: auto; overflow-y: hidden; }
+  .board-wrap { height: calc(100vh - 52px); overflow-x: hidden; overflow-y: auto; }
   .board {
-    display: flex; gap: 14px;
-    padding: 16px 20px; height: 100%;
-    align-items: flex-start; width: max-content; min-width: 100%;
+    display: flex; flex-wrap: wrap; gap: 14px;
+    padding: 16px 20px;
+    align-items: flex-start;
   }
 
   /* ── COLUMN ── */
@@ -89,7 +89,6 @@
     border-radius: var(--radius);
     border: 1px solid var(--border);
     display: flex; flex-direction: column;
-    max-height: calc(100vh - 84px);
     transition: box-shadow .2s;
   }
   .column.drag-over { box-shadow: 0 0 0 2px var(--accent), var(--shadow); }
@@ -124,17 +123,24 @@
   }
   .col-header:hover .col-drag-handle { opacity: 1; }
   .col-drag-handle:active { cursor: grabbing; }
-  .column.col-dragging { opacity: .4; }
+  .column.col-dragging { opacity: .25; pointer-events: none; }
   .column.col-drag-over-left { box-shadow: -3px 0 0 var(--accent), var(--shadow); }
   .column.col-drag-over-right { box-shadow: 3px 0 0 var(--accent), var(--shadow); }
 
-  .cards-list {
-    flex: 1; overflow-y: auto; padding: 10px 10px;
-    display: flex; flex-direction: column; gap: 8px;
-    scrollbar-width: thin; scrollbar-color: var(--surface3) transparent;
+  /* Floating drag ghost */
+  #col-ghost {
+    position: fixed; z-index: 9999; pointer-events: none;
+    width: 278px; opacity: .92;
+    transform: rotate(2deg) scale(1.03);
+    box-shadow: 0 16px 48px rgba(0,0,0,.6);
+    border-radius: var(--radius);
+    transition: transform .1s;
   }
-  .cards-list::-webkit-scrollbar { width: 4px; }
-  .cards-list::-webkit-scrollbar-thumb { background: var(--surface3); border-radius: 4px; }
+
+  .cards-list {
+    flex: 1; padding: 10px 10px;
+    display: flex; flex-direction: column; gap: 8px;
+  }
 
   .col-footer {
     padding: 8px 10px; flex-shrink: 0;
@@ -459,14 +465,8 @@ function makeColumn(col) {
   const count = col.cards.length;
   const limitStr = col.card_limit ? `<span class="col-limit">/${col.card_limit}</span>` : '';
   div.innerHTML = `
-    <div class="col-header"
-      draggable="true"
-      ondragstart="onColDragStart(event,${col.id})"
-      ondragend="onColDragEnd(event)"
-      ondragover="onColDragOver(event,${col.id})"
-      ondragleave="onColDragLeave(event)"
-      ondrop="onColDrop(event,${col.id})">
-      <div class="col-drag-handle" title="Drag to reorder">
+    <div class="col-header">
+      <div class="col-drag-handle" title="Drag to reorder" onpointerdown="onColPointerDown(event,${col.id})">
         <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="3" cy="2" r="1.3"/><circle cx="7" cy="2" r="1.3"/><circle cx="3" cy="7" r="1.3"/><circle cx="7" cy="7" r="1.3"/><circle cx="3" cy="12" r="1.3"/><circle cx="7" cy="12" r="1.3"/></svg>
       </div>
       <div class="col-color-bar" style="background:${col.color}"></div>
@@ -553,59 +553,95 @@ function updateStats() {
   `;
 }
 
-// ── Column Drag & Drop ────────────────────────────────────────────────────────
+// ── Column Drag & Drop (pointer events for smooth ghost) ──────────────────────
 let draggingColId = null;
+let colGhost = null;
+let colGhostOffsetX = 0;
+let colGhostOffsetY = 0;
 
-function onColDragStart(e, colId) {
-  // Prevent triggering if clicking the menu button
-  if (e.target.closest('.col-menu-btn')) { e.preventDefault(); return; }
+function onColPointerDown(e, colId) {
+  e.preventDefault();
+  e.stopPropagation();
+
   draggingColId = colId;
-  e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/col', colId);
-  setTimeout(() => e.currentTarget.closest('.column').classList.add('col-dragging'), 0);
+  const colEl = document.querySelector(`.column[data-col-id="${colId}"]`);
+
+  // Create ghost clone
+  colGhost = colEl.cloneNode(true);
+  colGhost.id = 'col-ghost';
+  colGhost.style.width = colEl.offsetWidth + 'px';
+  colGhost.style.height = colEl.offsetHeight + 'px';
+  const rect = colEl.getBoundingClientRect();
+  colGhostOffsetX = e.clientX - rect.left;
+  colGhostOffsetY = e.clientY - rect.top;
+  colGhost.style.left = (e.clientX - colGhostOffsetX) + 'px';
+  colGhost.style.top  = (e.clientY - colGhostOffsetY) + 'px';
+  document.body.appendChild(colGhost);
+
+  colEl.classList.add('col-dragging');
+  document.body.style.userSelect = 'none';
+  document.body.style.cursor = 'grabbing';
+
+  window.addEventListener('pointermove', onColPointerMove);
+  window.addEventListener('pointerup', onColPointerUp);
 }
 
-function onColDragEnd(e) {
-  draggingColId = null;
+function onColPointerMove(e) {
+  if (!colGhost) return;
+  colGhost.style.left = (e.clientX - colGhostOffsetX) + 'px';
+  colGhost.style.top  = (e.clientY - colGhostOffsetY) + 'px';
+
+  // Highlight drop target
+  document.querySelectorAll('.column').forEach(c => {
+    c.classList.remove('col-drag-over-left', 'col-drag-over-right');
+  });
+  const target = getColAtPoint(e.clientX, e.clientY);
+  if (target && target.dataset.colId != draggingColId) {
+    const rect = target.getBoundingClientRect();
+    target.classList.add(e.clientX < rect.left + rect.width / 2 ? 'col-drag-over-left' : 'col-drag-over-right');
+  }
+}
+
+async function onColPointerUp(e) {
+  window.removeEventListener('pointermove', onColPointerMove);
+  window.removeEventListener('pointerup', onColPointerUp);
+  document.body.style.userSelect = '';
+  document.body.style.cursor = '';
+
+  if (colGhost) { colGhost.remove(); colGhost = null; }
   document.querySelectorAll('.column').forEach(c => {
     c.classList.remove('col-dragging', 'col-drag-over-left', 'col-drag-over-right');
   });
+
+  const target = getColAtPoint(e.clientX, e.clientY);
+  if (target && target.dataset.colId && parseInt(target.dataset.colId) !== draggingColId) {
+    const targetColId = parseInt(target.dataset.colId);
+    const rect = target.getBoundingClientRect();
+    const dropBefore = e.clientX < rect.left + rect.width / 2;
+
+    const cols = [...board];
+    const fromIdx = cols.findIndex(c => c.id === draggingColId);
+    let toIdx = cols.findIndex(c => c.id === targetColId);
+    const [moved] = cols.splice(fromIdx, 1);
+    const insertAt = (fromIdx < toIdx)
+      ? (dropBefore ? toIdx - 1 : toIdx)
+      : (dropBefore ? toIdx : toIdx + 1);
+    cols.splice(Math.max(0, insertAt), 0, moved);
+
+    const order = cols.map((c, i) => ({ id: c.id, position: i }));
+    await api.post('/api/columns/reorder', { order });
+    await loadBoard();
+  }
+
+  draggingColId = null;
 }
 
-function onColDragOver(e, colId) {
-  if (!draggingColId || draggingColId === colId) return;
-  e.preventDefault(); e.stopPropagation();
-  e.dataTransfer.dropEffect = 'move';
-  const col = e.currentTarget.closest('.column');
-  const rect = col.getBoundingClientRect();
-  const midX = rect.left + rect.width / 2;
-  col.classList.remove('col-drag-over-left', 'col-drag-over-right');
-  col.classList.add(e.clientX < midX ? 'col-drag-over-left' : 'col-drag-over-right');
-}
-
-function onColDragLeave(e) {
-  e.currentTarget.closest('.column').classList.remove('col-drag-over-left', 'col-drag-over-right');
-}
-
-async function onColDrop(e, targetColId) {
-  if (!draggingColId || draggingColId === targetColId) return;
-  e.preventDefault(); e.stopPropagation();
-  const target = e.currentTarget.closest('.column');
-  const rect = target.getBoundingClientRect();
-  const dropBefore = e.clientX < rect.left + rect.width / 2;
-
-  // Build new order
-  const cols = [...board];
-  const fromIdx = cols.findIndex(c => c.id === draggingColId);
-  let toIdx = cols.findIndex(c => c.id === targetColId);
-  if (!dropBefore) toIdx++;
-  const [moved] = cols.splice(fromIdx, 1);
-  const insertAt = fromIdx < toIdx ? toIdx - 1 : toIdx;
-  cols.splice(insertAt, 0, moved);
-
-  const order = cols.map((c, i) => ({ id: c.id, position: i }));
-  await api.post('/api/columns/reorder', { order });
-  await loadBoard();
+function getColAtPoint(x, y) {
+  // Temporarily hide ghost to hit-test underneath
+  if (colGhost) colGhost.style.display = 'none';
+  const el = document.elementFromPoint(x, y);
+  if (colGhost) colGhost.style.display = '';
+  return el ? el.closest('.column') : null;
 }
 
 
