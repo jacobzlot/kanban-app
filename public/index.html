@@ -90,15 +90,20 @@
     border: 1px solid var(--border);
     display: flex; flex-direction: column;
     transition: box-shadow .2s;
+    overflow: hidden;
   }
   .column.drag-over { box-shadow: 0 0 0 2px var(--accent), var(--shadow); }
   .col-header {
-    padding: 0 12px; height: 44px;
+    padding: 0 10px 0 12px; height: 44px;
     display: flex; align-items: center; gap: 8px;
-    flex-shrink: 0; border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border);
+    position: relative;
   }
-  .col-color-bar {
-    width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0;
+  /* Colored top accent bar */
+  .col-header::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0;
+    height: 3px; background: var(--col-color);
   }
   .col-title {
     font-size: 13px; font-weight: 600; flex: 1;
@@ -157,15 +162,16 @@
 
   /* ── CARD ── */
   .card {
-    background: var(--surface2);
-    border: 1px solid var(--border);
+    background: var(--card-bg, var(--surface2));
+    border: 1px solid var(--card-border, var(--border));
+    border-left: 3px solid var(--col-color, var(--border2));
     border-radius: var(--radius-sm);
     padding: 11px 12px; cursor: grab;
     transition: box-shadow .15s, transform .15s, border-color .15s;
     box-shadow: var(--shadow-card);
     position: relative;
   }
-  .card:hover { border-color: var(--border2); box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
+  .card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.4); transform: translateY(-1px); }
   .card.dragging { opacity: .5; cursor: grabbing; transform: rotate(1.5deg) scale(1.02); }
 
   .card-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 7px; }
@@ -462,6 +468,7 @@ function makeColumn(col) {
   const div = document.createElement('div');
   div.className = 'column';
   div.dataset.colId = col.id;
+  div.style.setProperty('--col-color', col.color);
   const count = col.cards.length;
   const limitStr = col.card_limit ? `<span class="col-limit">/${col.card_limit}</span>` : '';
   div.innerHTML = `
@@ -469,7 +476,6 @@ function makeColumn(col) {
       <div class="col-drag-handle" title="Drag to reorder" onpointerdown="onColPointerDown(event,${col.id})">
         <svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="3" cy="2" r="1.3"/><circle cx="7" cy="2" r="1.3"/><circle cx="3" cy="7" r="1.3"/><circle cx="7" cy="7" r="1.3"/><circle cx="3" cy="12" r="1.3"/><circle cx="7" cy="12" r="1.3"/></svg>
       </div>
-      <div class="col-color-bar" style="background:${col.color}"></div>
       <div class="col-title">${esc(col.title)}</div>
       <div class="col-count">${count}${limitStr}</div>
       <button class="col-menu-btn" onclick="openCtxMenu(event,${col.id})">
@@ -489,15 +495,24 @@ function makeColumn(col) {
     </div>
   `;
   const list = div.querySelector('.cards-list');
-  col.cards.forEach(card => list.appendChild(makeCard(card)));
+  col.cards.forEach(card => list.appendChild(makeCard(card, col.color)));
   return div;
 }
 
-function makeCard(card) {
+function makeCard(card, colColor) {
   const div = document.createElement('div');
   div.className = 'card';
   div.draggable = true;
   div.dataset.cardId = card.id;
+  // Apply column color tint
+  if (colColor) {
+    const r = parseInt(colColor.slice(1,3),16);
+    const g = parseInt(colColor.slice(3,5),16);
+    const b = parseInt(colColor.slice(5,7),16);
+    div.style.setProperty('--col-color', colColor);
+    div.style.setProperty('--card-bg', `rgba(${r},${g},${b},0.07)`);
+    div.style.setProperty('--card-border', `rgba(${r},${g},${b},0.2)`);
+  }
   div.addEventListener('dragstart', e => onDragStart(e, card.id));
   div.addEventListener('dragend', onDragEnd);
 
